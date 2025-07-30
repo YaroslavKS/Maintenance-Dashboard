@@ -45,26 +45,24 @@ function createMachineRow(machine) {
   taskTable.appendChild(tr);
 }
 
-function createTaskElement(text, user = '🧑 User', currentStatus = 'pending') {
+function createTaskElement(text, user = '🧑 User', currentStatus = 'pending', createdAt = null) {
   const div = document.createElement('div');
   div.className = 'task text-truncate position-relative border rounded bg-light p-2 mt-1';
-  div.setAttribute('contenteditable', 'true');
   div.style.maxWidth = '180px';
-  div.style.overflow = 'hidden';
-  div.style.whiteSpace = 'nowrap';
-  div.title = text;
   div.dataset.status = currentStatus;
 
+  if (!createdAt) createdAt = new Date().toISOString();
+  div.dataset.createdAt = createdAt;
+
+  const dateText = new Date(createdAt).toLocaleString();
 
   const taskBody = document.createElement('div');
-  taskBody.innerHTML = `${text}<br><small class="text-muted">👤 ${user}</small>`;
+  taskBody.innerHTML = `${text}<br><small class="text-muted">👤 ${user}</small><br><small class="text-muted">🕒 ${dateText}</small>`;
   div.appendChild(taskBody);
-
 
   const imagesContainer = document.createElement('div');
   imagesContainer.className = 'task-images mt-2 d-flex flex-wrap gap-1';
   div.appendChild(imagesContainer);
-
 
   const imgUpload = document.createElement('input');
   imgUpload.type = 'file';
@@ -84,17 +82,11 @@ function createTaskElement(text, user = '🧑 User', currentStatus = 'pending') 
         const img = document.createElement('img');
         img.src = event.target.result;
         img.className = 'img-thumbnail';
-        img.style.width = '50px';
-        img.style.height = '50px';
+        img.style.width = '60px';
+        img.style.height = '60px';
         img.style.cursor = 'pointer';
 
-
         img.addEventListener('click', () => {
-          const modalImg = document.createElement('img');
-          modalImg.src = img.src;
-          modalImg.style.maxWidth = '90vw';
-          modalImg.style.maxHeight = '90vh';
-
           const modal = document.createElement('div');
           modal.className = 'modal d-flex align-items-center justify-content-center';
           modal.style.position = 'fixed';
@@ -104,34 +96,29 @@ function createTaskElement(text, user = '🧑 User', currentStatus = 'pending') 
           modal.style.height = '100vh';
           modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
           modal.style.zIndex = 9999;
-          modal.appendChild(modalImg);
+          modal.innerHTML = `<img src="${img.src}" style="max-width:90vw; max-height:90vh">`;
           modal.addEventListener('click', () => modal.remove());
-
           document.body.appendChild(modal);
         });
-
 
         const removeBtn = document.createElement('button');
         removeBtn.textContent = '✖';
         removeBtn.className = 'btn btn-sm btn-danger position-absolute top-0 end-0 p-0';
         removeBtn.style.fontSize = '0.7rem';
-        removeBtn.style.lineHeight = '1';
-        removeBtn.style.borderRadius = '0 0.25rem 0.25rem 0';
-        removeBtn.style.cursor = 'pointer';
         removeBtn.addEventListener('click', () => {
           imgWrapper.remove();
+          saveTasksToLocalStorage();
         });
 
-        imgWrapper.style.position = 'relative';
         imgWrapper.appendChild(img);
         imgWrapper.appendChild(removeBtn);
         imagesContainer.appendChild(imgWrapper);
+        saveTasksToLocalStorage();
       };
       reader.readAsDataURL(file);
     });
-    imgUpload.value = ''; 
+    imgUpload.value = '';
   });
-
 
   const controlRow = document.createElement('div');
   controlRow.className = 'd-flex justify-content-between mt-1';
@@ -139,12 +126,18 @@ function createTaskElement(text, user = '🧑 User', currentStatus = 'pending') 
   const nextBtn = document.createElement('button');
   nextBtn.className = 'btn btn-sm btn-outline-success';
   nextBtn.textContent = 'Next →';
-  nextBtn.addEventListener('click', () => moveTaskToNext(div));
+  nextBtn.addEventListener('click', () => {
+    moveTaskToNext(div);
+    saveTasksToLocalStorage();
+  });
 
   const backBtn = document.createElement('button');
   backBtn.className = 'btn btn-sm btn-outline-primary';
   backBtn.textContent = '← Back';
-  backBtn.addEventListener('click', () => moveTaskBack(div));
+  backBtn.addEventListener('click', () => {
+    moveTaskBack(div);
+    saveTasksToLocalStorage();
+  });
 
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'btn btn-sm btn-outline-danger';
@@ -152,6 +145,7 @@ function createTaskElement(text, user = '🧑 User', currentStatus = 'pending') 
   deleteBtn.addEventListener('click', () => {
     if (confirm('Are you sure you want to delete this task?')) {
       div.remove();
+      saveTasksToLocalStorage();
     }
   });
 
@@ -160,18 +154,73 @@ function createTaskElement(text, user = '🧑 User', currentStatus = 'pending') 
   controlRow.appendChild(deleteBtn);
   div.appendChild(controlRow);
 
-
-  div.addEventListener('mouseenter', () => {
-    div.style.whiteSpace = 'normal';
-    div.style.overflow = 'visible';
-  });
-
-  div.addEventListener('mouseleave', () => {
-    div.style.whiteSpace = 'nowrap';
-    div.style.overflow = 'hidden';
-  });
-
   return div;
+}
+
+function saveTasksToLocalStorage() {
+  const tasks = [];
+  document.querySelectorAll('.task').forEach(task => {
+    tasks.push({
+      text: task.querySelector('div').innerText.split('\n')[0],
+      user: task.querySelector('small')?.innerText.replace('👤 ', '').split('\n')[0] || '',
+      status: task.dataset.status,
+      createdAt: task.dataset.createdAt,
+      images: Array.from(task.querySelectorAll('img')).map(img => img.src)
+    });
+  });
+  localStorage.setItem('tasks', JSON.stringify(tasks));
+}
+
+function loadTasksFromLocalStorage() {
+  const saved = JSON.parse(localStorage.getItem('tasks') || '[]');
+  saved.forEach(task => {
+    const taskElement = createTaskElement(task.text, task.user, task.status, task.createdAt);
+    const row = document.querySelector(`tr[data-machine]`);
+    const column = row.querySelector(`.task-zone[data-status='${task.status}']`);
+    column.appendChild(taskElement);
+
+    if (task.images && task.images.length > 0) {
+      const imagesContainer = taskElement.querySelector('.task-images');
+      task.images.forEach(src => {
+        const imgWrapper = document.createElement('div');
+        imgWrapper.className = 'position-relative';
+
+        const img = document.createElement('img');
+        img.src = src;
+        img.className = 'img-thumbnail';
+        img.style.width = '60px';
+        img.style.height = '60px';
+        img.style.cursor = 'pointer';
+        img.addEventListener('click', () => {
+          const modal = document.createElement('div');
+          modal.className = 'modal d-flex align-items-center justify-content-center';
+          modal.style.position = 'fixed';
+          modal.style.top = 0;
+          modal.style.left = 0;
+          modal.style.width = '100vw';
+          modal.style.height = '100vh';
+          modal.style.backgroundColor = 'rgba(0,0,0,0.8)';
+          modal.style.zIndex = 9999;
+          modal.innerHTML = `<img src="${src}" style="max-width:90vw; max-height:90vh">`;
+          modal.addEventListener('click', () => modal.remove());
+          document.body.appendChild(modal);
+        });
+
+        const removeBtn = document.createElement('button');
+        removeBtn.textContent = '✖';
+        removeBtn.className = 'btn btn-sm btn-danger position-absolute top-0 end-0 p-0';
+        removeBtn.style.fontSize = '0.7rem';
+        removeBtn.addEventListener('click', () => {
+          imgWrapper.remove();
+          saveTasksToLocalStorage();
+        });
+
+        imgWrapper.appendChild(img);
+        imgWrapper.appendChild(removeBtn);
+        imagesContainer.appendChild(imgWrapper);
+      });
+    }
+  });
 }
 
 function moveTaskToNext(taskElement) {
@@ -210,7 +259,6 @@ function getPreviousStatus(currentStatus) {
   return statuses[index - 1];
 }
 
-
 Object.entries(machineGroups).forEach(([groupName, machines]) => {
   createGroupHeader(groupName);
   machines.forEach(createMachineRow);
@@ -230,4 +278,7 @@ form.addEventListener('submit', (e) => {
   cell.appendChild(taskDiv);
   taskInput.value = '';
   machineSelect.value = '';
+  saveTasksToLocalStorage();
 });
+
+window.addEventListener('DOMContentLoaded', loadTasksFromLocalStorage);
